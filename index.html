@@ -603,19 +603,45 @@ function validateEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
-// ── BUILD JOTFORM PAYLOAD ──
+// ── BUILD JOTFORM PAYLOAD as URLSearchParams ──
+// Jotform's submission endpoint requires application/x-www-form-urlencoded
+// with field names in the format:  submission[qID]  e.g. submission[3]
+// The qID is the number in the field name: q3_dropdown1 → 3
 function buildPayload() {
+  const params = new URLSearchParams();
   const form = document.getElementById('reg');
-  const data = new FormData();
-  // standard text/select/textarea fields
+
   form.querySelectorAll('input[name],select[name],textarea[name]').forEach(el => {
-    if (el.value !== undefined && el.value !== null) {
-      data.append(el.name, el.value);
+    const raw = el.name; // e.g. "q3_dropdown1"
+    const match = raw.match(/^q(\d+)_/);
+    if (!match) return;
+    const qid = match[1];
+    const val = el.value || '';
+    // For checkboxes (sessions), Jotform expects repeated keys
+    if (raw === 'q20_checkbox18' && val) {
+      val.split(', ').forEach((v, i) => {
+        params.append('submission[' + qid + '][' + i + ']', v.trim());
+      });
+    } else {
+      params.append('submission[' + qid + ']', val);
     }
   });
-  // phone: Jotform expects full field format
-  // (already captured via name=q11_phone9)
-  return data;
+
+  // Jotform also needs the form's action token
+  params.append('formID', JF_FORM_ID);
+
+  return params;
+}
+
+// ── SHOW SUCCESS ──
+function showSuccess() {
+  document.getElementById('reg').style.display = 'none';
+  document.getElementById('status-bar').style.display = 'none';
+  const success = document.getElementById('success');
+  success.classList.add('show');
+  const ref = 'IPC2026-' + Date.now().toString(36).toUpperCase().slice(-6);
+  document.getElementById('sref').textContent = 'Reference: ' + ref;
+  window.scrollTo({top:0,behavior:'smooth'});
 }
 
 // ── SUBMIT TO JOTFORM ──
@@ -670,29 +696,45 @@ document.getElementById('reg').addEventListener('submit', async function(e) {
   try {
     const payload = buildPayload();
 
-    // Post to Jotform submission endpoint
+    // Strategy 1: POST directly to Jotform's CORS-enabled submission API
+    // Jotform allows cross-origin POSTs with application/x-www-form-urlencoded
     const resp = await fetch(JF_SUBMIT_URL, {
       method: 'POST',
-      body: payload,
-      mode: 'no-cors'   // Jotform supports no-cors cross-origin submission
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: payload.toString()
     });
 
-    // no-cors means we can't read the response body,
-    // but if we reach here without a network error the submission went through
-    document.getElementById('reg').style.display = 'none';
-    bar.style.display = 'none';
-    const success = document.getElementById('success');
-    success.classList.add('show');
-    // generate reference
-    const ref = 'IPC2026-' + Date.now().toString(36).toUpperCase().slice(-6);
-    document.getElementById('sref').textContent = 'Reference: ' + ref;
-    window.scrollTo({top:0,behavior:'smooth'});
+    // Jotform returns JSON on success: { "responseCode": 200, ... }
+    const json = await resp.json().catch(() => null);
+
+    if (resp.ok || (json && (json.responseCode === 200 || json.message === 'success'))) {
+      showSuccess();
+    } else {
+      throw new Error('Jotform rejected the submission: ' + (json ? JSON.stringify(json) : resp.status));
+    }
 
   } catch(err) {
+    // Strategy 2 fallback: if CORS blocks the direct POST,
+    // redirect to the native Jotform form (pre-filled where possible)
+    console.warn('Direct POST failed, trying iframe fallback:', err.message);
+
+    // Build a prefill URL for the Jotform form
+    const fn = document.getElementById('f-fn').value;
+    const sn = document.getElementById('f-sn').value;
+    const email = document.getElementById('f-email').value;
+    const phone = document.getElementById('f-phone').value;
+    const jfUrl = 'https://form.jotform.com/' + JF_FORM_ID
+      + '?q4_textbox2=' + encodeURIComponent(fn)
+      + '&q5_textbox3=' + encodeURIComponent(sn)
+      + '&q12_email10=' + encodeURIComponent(email)
+      + '&q11_phone9=' + encodeURIComponent(phone);
+
     btn.disabled = false;
     btn.innerHTML = 'Complete Registration →';
     bar.className = 'status-bar show err';
-    bar.textContent = '❌ Submission failed. Please check your internet connection and try again, or use the direct Jotform link: https://form.jotform.com/261634621857058';
+    bar.innerHTML = '⚠ Your browser blocked the direct submission. '
+      + '<a href="' + jfUrl + '" target="_blank" style="color:#056C34;font-weight:600;">'
+      + 'Click here to open the registration form</a> — your name, email and phone are pre-filled.';
   }
 });
 
