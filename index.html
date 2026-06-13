@@ -12,7 +12,7 @@
     --gold:#D4A017; --gold2:#B8861A; --cream:#FBF8ED;
     --white:#FFFFFF; --text:#1A1A0A; --muted:#5A5A3A;
     --border:#D6D09A; --ibg:#FFFFF5; --error:#C0280D;
-  }
+  
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
   body{font-family:'Inter',sans-serif;background:linear-gradient(160deg,#0C0C05 0%,#1B3B28 40%,#056C34 100%);min-height:100vh;padding:28px 16px 60px;color:var(--text)}
   .outer{max-width:780px;margin:0 auto}
@@ -429,7 +429,7 @@ document.getElementById('reg').addEventListener('submit', async function(e) {
   try {
     const resp = await fetch(PROXY_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
       body: JSON.stringify(payload)
     });
     const result = await resp.json();
